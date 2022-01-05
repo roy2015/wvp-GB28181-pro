@@ -108,7 +108,7 @@ public class ZLMRESTfulUtils {
         logger.info(request.toString());
         try {
             OkHttpClient client = new OkHttpClient.Builder()
-                    .readTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(20, TimeUnit.SECONDS)
                     .build();
             Response response = client.newCall(request).execute();
             if (response.isSuccessful()) {
