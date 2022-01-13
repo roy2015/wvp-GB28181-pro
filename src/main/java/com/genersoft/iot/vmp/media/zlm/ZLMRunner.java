@@ -4,15 +4,21 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.genersoft.iot.vmp.conf.MediaConfig;
+import com.genersoft.iot.vmp.gb28181.event.EventPublisher;
 import com.genersoft.iot.vmp.media.zlm.dto.MediaServerItem;
 import com.genersoft.iot.vmp.service.IMediaServerService;
 import com.genersoft.iot.vmp.service.IStreamProxyService;
+import com.genersoft.iot.vmp.storager.IRedisCatchStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.*;
 
@@ -34,43 +40,56 @@ public class ZLMRunner implements CommandLineRunner {
     private IStreamProxyService streamProxyService;
 
     @Autowired
+    private EventPublisher publisher;
+
+    @Autowired
     private IMediaServerService mediaServerService;
+
+    @Autowired
+    private IRedisCatchStorage redisCatchStorage;
 
     @Autowired
     private MediaConfig mediaConfig;
 
+    @Qualifier("taskExecutor")
+    @Autowired
+    private ThreadPoolTaskExecutor taskExecutor;
+
     @Override
     public void run(String... strings) throws Exception {
-        // 清楚redis缓存的在线zlm信息
         mediaServerService.clearMediaServerForOnline();
-
-        // 将配置文件的meida配置写入数据库
-//        MediaServerItem presetMediaServer = mediaServerService.getOneByHostAndPort(
-//                mediaConfig.getIp(), mediaConfig.getHttpPort());
-//        if (presetMediaServer  != null) {
-//            MediaServerItem mediaSerItem = mediaConfig.getMediaSerItem();
-//            mediaSerItem.setId(presetMediaServer.getId());
-//            mediaServerService.update(mediaSerItem);
-//        }else {
-//            if (mediaConfig.getId() != null) {
-//                MediaServerItem mediaSerItem = mediaConfig.getMediaSerItem();
-//                mediaServerService.add(mediaSerItem);
-//            }
-//        }
+        MediaServerItem defaultMediaServer = mediaServerService.getDefaultMediaServer();
+        if (defaultMediaServer == null) {
+            mediaServerService.addToDatabase(mediaConfig.getMediaSerItem());
+        }else {
+            MediaServerItem mediaSerItem = mediaConfig.getMediaSerItem();
+            mediaSerItem.setId(defaultMediaServer.getId());
+            mediaServerService.updateToDatabase(mediaSerItem);
+        }
 
         // 订阅 zlm启动事件, 新的zlm也会从这里进入系统
         hookSubscribe.addSubscribe(ZLMHttpHookSubscribe.HookType.on_server_started,null,
                 (MediaServerItem mediaServerItem, JSONObject response)->{
             ZLMServerConfig zlmServerConfig = JSONObject.toJavaObject(response, ZLMServerConfig.class);
             if (zlmServerConfig !=null ) {
-                startGetMedia.remove(zlmServerConfig.getGeneralMediaServerId());
-                mediaServerService.handLeZLMServerConfig(zlmServerConfig);
-//                zLmRunning(zlmServerConfig);
+                if (startGetMedia != null) {
+                    startGetMedia.remove(zlmServerConfig.getGeneralMediaServerId());
+                }
+                mediaServerService.zlmServerOnline(zlmServerConfig);
             }
         });
 
+        // 订阅 zlm保活事件, 当zlm离线时做业务的处理
+        hookSubscribe.addSubscribe(ZLMHttpHookSubscribe.HookType.on_server_keepalive,null,
+                (MediaServerItem mediaServerItem, JSONObject response)->{
+                    String mediaServerId = response.getString("mediaServerId");
+                    if (mediaServerId !=null ) {
+                        mediaServerService.updateMediaServerKeepalive(mediaServerId, response.getJSONObject("data"));
+                    }
+                });
+
         // 获取zlm信息
-        logger.info("等待默认zlm接入...");
+        logger.info("[zlm接入]等待默认zlm中...");
 
         // 获取所有的zlm， 并开启主动连接
         List<MediaServerItem> all = mediaServerService.getAllFromDatabase();
@@ -80,20 +99,12 @@ public class ZLMRunner implements CommandLineRunner {
         for (MediaServerItem mediaServerItem : all) {
             if (startGetMedia == null) startGetMedia = new HashMap<>();
             startGetMedia.put(mediaServerItem.getId(), true);
-            new Thread(() -> {
-
-                ZLMServerConfig zlmServerConfig = getMediaServerConfig(mediaServerItem);
-                if (zlmServerConfig != null) {
-                    zlmServerConfig.setIp(mediaServerItem.getIp());
-                    zlmServerConfig.setHttpPort(mediaServerItem.getHttpPort());
-                    startGetMedia.remove(mediaServerItem.getId());
-                    mediaServerService.handLeZLMServerConfig(zlmServerConfig);
-                }
-
-            }).start();
+            taskExecutor.execute(()->{
+                connectZlmServer(mediaServerItem);
+            });
         }
         Timer timer = new Timer();
-        // 2分钟后未连接到则不再去主动连接, TODO 并对重启前使用此在zlm的通道发送bye
+        // 10分钟后未连接到则不再去主动连接, TODO 并对重启前使用此在zlm的通道发送bye
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
@@ -106,10 +117,21 @@ public class ZLMRunner implements CommandLineRunner {
             }
             //  TODO 清理数据库中与redis不匹配的zlm
             }
-        }, 60 * 1000 * 2);
+        }, 60 * 1000 * 10);
     }
 
-    public ZLMServerConfig getMediaServerConfig(MediaServerItem mediaServerItem) {
+    @Async
+    public void connectZlmServer(MediaServerItem mediaServerItem){
+        ZLMServerConfig zlmServerConfig = getMediaServerConfig(mediaServerItem, 1);
+        if (zlmServerConfig != null) {
+            zlmServerConfig.setIp(mediaServerItem.getIp());
+            zlmServerConfig.setHttpPort(mediaServerItem.getHttpPort());
+            startGetMedia.remove(mediaServerItem.getId());
+            mediaServerService.zlmServerOnline(zlmServerConfig);
+        }
+    }
+
+    public ZLMServerConfig getMediaServerConfig(MediaServerItem mediaServerItem, int index) {
         if (startGetMedia == null) { return null;}
         if (!mediaServerItem.isDefaultServer() && mediaServerService.getOne(mediaServerItem.getId()) == null) {
             return null;
@@ -126,14 +148,19 @@ public class ZLMRunner implements CommandLineRunner {
                 ZLMServerConfig.setIp(mediaServerItem.getIp());
             }
         } else {
-            logger.error("[ {} ]-[ {}:{} ]主动连接失败失败, 2s后重试",
-                    mediaServerItem.getId(), mediaServerItem.getIp(), mediaServerItem.getHttpPort());
+            logger.error("[ {} ]-[ {}:{} ]第{}次主动连接失败, 2s后重试",
+                    mediaServerItem.getId(), mediaServerItem.getIp(), mediaServerItem.getHttpPort(), index);
+            if (index == 1 && !StringUtils.isEmpty(mediaServerItem.getId())) {
+                logger.info("[ {} ]-[ {}:{} ]第{}次主动连接失败, 开始清理相关资源",
+                        mediaServerItem.getId(), mediaServerItem.getIp(), mediaServerItem.getHttpPort(), index);
+                publisher.zlmOfflineEventPublish(mediaServerItem.getId());
+            }
             try {
                 Thread.sleep(2000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            ZLMServerConfig = getMediaServerConfig(mediaServerItem);
+            ZLMServerConfig = getMediaServerConfig(mediaServerItem, index += 1);
         }
         return ZLMServerConfig;
 

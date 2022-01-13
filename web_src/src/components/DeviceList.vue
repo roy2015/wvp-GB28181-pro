@@ -18,6 +18,13 @@
 					</el-table-column>
 					<el-table-column prop="deviceId" label="设备编号" width="180" align="center">
 					</el-table-column>
+          <el-table-column label="地址" width="180" align="center">
+            <template slot-scope="scope">
+              <div slot="reference" class="name-wrapper">
+                <el-tag size="medium">{{ scope.row.hostAddress }}</el-tag>
+              </div>
+            </template>
+          </el-table-column>
 					<el-table-column prop="manufacturer" label="厂家" align="center">
 					</el-table-column>
 					<el-table-column label="流传输模式" align="center" width="120">
@@ -47,13 +54,7 @@
           </el-table-column>
           <el-table-column prop="createTime" label="创建时间" align="center" width="140">
           </el-table-column>
-          <el-table-column label="地址" width="180" align="center">
-            <template slot-scope="scope">
-              <div slot="reference" class="name-wrapper">
-                <el-tag size="medium">{{ scope.row.hostAddress }}</el-tag>
-              </div>
-            </template>
-          </el-table-column>
+
 					<el-table-column label="操作" width="360" align="center" fixed="right">
 						<template slot-scope="scope">
 							<el-button size="mini" :ref="scope.row.deviceId + 'refbtn' "  v-if="scope.row.online!=0" icon="el-icon-refresh"  @click="refDevice(scope.row)">刷新</el-button>
@@ -195,16 +196,16 @@
 					url: '/api/device/query/devices/' + itemData.deviceId + '/sync'
 				}).then(function(res) {
 					console.log("刷新设备结果："+JSON.stringify(res));
-					if (!res.data.deviceId) {
+					if (res.data.code !==0) {
 						that.$message({
 							showClose: true,
-							message: res.data,
+							message: res.data.msg,
 							type: 'error'
 						});
 					}else{
 						that.$message({
 							showClose: true,
-							message: '请求成功',
+							message: res.data.msg,
 							type: 'success'
 						});
 					}

@@ -1,8 +1,12 @@
 package com.genersoft.iot.vmp.gb28181.event.offline;
 
+import com.genersoft.iot.vmp.conf.RedisKeyExpirationEventMessageListener;
+import com.genersoft.iot.vmp.conf.UserSetup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.listener.KeyExpirationEventMessageListener;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -12,21 +16,34 @@ import com.genersoft.iot.vmp.common.VideoManagerConstants;
 import com.genersoft.iot.vmp.gb28181.event.EventPublisher;
 
 /**    
- * @Description:设备心跳超时监听,借助redis过期特性，进行监听，监听到说明设备心跳超时，发送离线事件
+ * @description:设备心跳超时监听,借助redis过期特性，进行监听，监听到说明设备心跳超时，发送离线事件
  * @author: swwheihei
  * @date:   2020年5月6日 上午11:35:46     
  */
 @Component
-public class KeepliveTimeoutListener extends KeyExpirationEventMessageListener {
+public class KeepliveTimeoutListener extends RedisKeyExpirationEventMessageListener {
 
     private Logger logger = LoggerFactory.getLogger(KeepliveTimeoutListener.class);
 
 	@Autowired
 	private EventPublisher publisher;
 
-	public KeepliveTimeoutListener(RedisMessageListenerContainer listenerContainer) {
-		super(listenerContainer);
-	}
+	@Autowired
+	private UserSetup userSetup;
+
+    public KeepliveTimeoutListener(RedisMessageListenerContainer listenerContainer, UserSetup userSetup) {
+        super(listenerContainer, userSetup);
+    }
+
+    @Override
+    public void init() {
+        if (!userSetup.getRedisConfig()) {
+            // 配置springboot默认Config为空，即不让应用去修改redis的默认配置，因为Redis服务出于安全会禁用CONFIG命令给远程用户使用
+            setKeyspaceNotificationsConfigParameter("");
+        }
+        super.init();
+    }
+
 
 	/**
      * 监听失效的key，key格式为keeplive_deviceId
@@ -37,12 +54,13 @@ public class KeepliveTimeoutListener extends KeyExpirationEventMessageListener {
     public void onMessage(Message message, byte[] pattern) {
         //  获取失效的key
         String expiredKey = message.toString();
-        if(!expiredKey.startsWith(VideoManagerConstants.KEEPLIVEKEY_PREFIX)){
-        	logger.debug("收到redis过期监听，但开头不是"+VideoManagerConstants.KEEPLIVEKEY_PREFIX+"，忽略");
+        String KEEPLIVEKEY_PREFIX = VideoManagerConstants.KEEPLIVEKEY_PREFIX + userSetup.getServerId() + "_";
+        if(!expiredKey.startsWith(KEEPLIVEKEY_PREFIX)){
+        	logger.debug("收到redis过期监听，但开头不是"+KEEPLIVEKEY_PREFIX+"，忽略");
         	return;
         }
         
-        String deviceId = expiredKey.substring(VideoManagerConstants.KEEPLIVEKEY_PREFIX.length(),expiredKey.length());
+        String deviceId = expiredKey.substring(KEEPLIVEKEY_PREFIX.length(),expiredKey.length());
         publisher.outlineEventPublish(deviceId, VideoManagerConstants.EVENT_OUTLINE_TIMEOUT);
     }
 }

@@ -1,19 +1,21 @@
 package com.genersoft.iot.vmp.gb28181.event;
 
 import com.genersoft.iot.vmp.gb28181.bean.Device;
+import com.genersoft.iot.vmp.gb28181.event.offline.OfflineEvent;
 import com.genersoft.iot.vmp.gb28181.event.platformKeepaliveExpire.PlatformKeepaliveExpireEvent;
 import com.genersoft.iot.vmp.gb28181.event.platformNotRegister.PlatformNotRegisterEvent;
+import com.genersoft.iot.vmp.media.zlm.event.ZLMOfflineEvent;
+import com.genersoft.iot.vmp.media.zlm.event.ZLMOnlineEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import com.genersoft.iot.vmp.gb28181.bean.DeviceAlarm;
 import com.genersoft.iot.vmp.gb28181.event.alarm.AlarmEvent;
-import com.genersoft.iot.vmp.gb28181.event.offline.OfflineEvent;
 import com.genersoft.iot.vmp.gb28181.event.online.OnlineEvent;
 
 /**    
- * @Description:Event事件通知推送器，支持推送在线事件、离线事件
+ * @description:Event事件通知推送器，支持推送在线事件、离线事件
  * @author: swwheihei
  * @date:   2020年5月6日 上午11:30:50     
  */
@@ -66,5 +68,16 @@ public class EventPublisher {
 		alarmEvent.setAlarmInfo(deviceAlarm);
 		applicationEventPublisher.publishEvent(alarmEvent);
 	}
-	
+
+	public void zlmOfflineEventPublish(String mediaServerId){
+		ZLMOfflineEvent outEvent = new ZLMOfflineEvent(this);
+		outEvent.setMediaServerId(mediaServerId);
+		applicationEventPublisher.publishEvent(outEvent);
+	}
+
+	public void zlmOnlineEventPublish(String mediaServerId) {
+		ZLMOnlineEvent outEvent = new ZLMOnlineEvent(this);
+		outEvent.setMediaServerId(mediaServerId);
+		applicationEventPublisher.publishEvent(outEvent);
+	}
 }

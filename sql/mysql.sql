@@ -1,7 +1,7 @@
 -- auto-generated definition
 
 
-CREATE DATABASE `wvp` /*!40100 DEFAULT CHARACTER SET utf8mb3 COLLATE utf8mb3_bin */;
+CREATE DATABASE  IF NOT EXISTS `wvp` /*!40100 DEFAULT CHARACTER SET utf8mb3 COLLATE utf8mb3_bin */;
 
 use wvp;
 
@@ -23,6 +23,7 @@ create table device
     updateTime    varchar(50)  not null,
     port          int          not null,
     expires       int          not null,
+    subscribeCycleForCatalog       int          not null,
     hostAddress   varchar(50)  not null,
     charset       varchar(50)  not null
 );
@@ -147,6 +148,7 @@ create table media_server
     defaultServer           int          not null,
     createTime              varchar(50)  not null,
     updateTime              varchar(50)  not null,
+    hookAliveInterval	    int          not null,
     constraint media_server_i
         unique (ip, httpPort)
 );
@@ -169,10 +171,21 @@ create table parent_platform
     keepTimeout    varchar(50)  null,
     transport      varchar(50)  null,
     characterSet   varchar(50)  null,
+    catalogId      varchar(50)  not null,
     ptz            int          null,
     rtcp           int          null,
     status         bit          null,
+    shareAllLiveStream         int          null,
     primary key (id, serverGBId)
+);
+
+
+create table platform_catalog
+(
+    id         varchar(50)  primary key,
+    platformId varchar(50) not null,
+    name       varchar(255) not null,
+    parentId   varchar(50)
 );
 
 create table platform_gb_channel
@@ -181,6 +194,7 @@ create table platform_gb_channel
     deviceId           varchar(50) not null,
     platformId         varchar(50) not null,
     deviceAndChannelId varchar(50) not null,
+    catalogId          varchar(50) not null,
     primary key (deviceAndChannelId, platformId)
 );
 
@@ -189,6 +203,7 @@ create table platform_gb_stream
     platformId varchar(50)  not null,
     app        varchar(255) not null,
     stream     varchar(255) not null,
+    catalogId  varchar(50) not null,
     primary key (platformId, app, stream)
 );
 
@@ -207,6 +222,7 @@ create table stream_proxy
     enable_hls     bit          null,
     enable_mp4     bit          null,
     enable         bit          not null,
+    enable_remove_none_reader    bit          not null,
     createTime     varchar(50)  not null,
     primary key (app, stream)
 );

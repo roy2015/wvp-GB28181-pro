@@ -104,6 +104,16 @@ public class ParentPlatform {
      */
     private int channelCount;
 
+    /**
+     * 共享所有的直播流
+     */
+    private boolean shareAllLiveStream;
+
+    /**
+     * 默认目录Id,自动添加的通道多放在这个目录下
+     */
+    private String catalogId;
+
     public Integer getId() {
         return id;
     }
@@ -264,4 +274,20 @@ public class ParentPlatform {
         this.channelCount = channelCount;
     }
 
+
+    public boolean isShareAllLiveStream() {
+        return shareAllLiveStream;
+    }
+
+    public void setShareAllLiveStream(boolean shareAllLiveStream) {
+        this.shareAllLiveStream = shareAllLiveStream;
+    }
+
+    public String getCatalogId() {
+        return catalogId;
+    }
+
+    public void setCatalogId(String catalogId) {
+        this.catalogId = catalogId;
+    }
 }

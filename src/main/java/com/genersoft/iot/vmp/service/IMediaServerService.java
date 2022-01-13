@@ -1,5 +1,6 @@
 package com.genersoft.iot.vmp.service;
 
+import com.alibaba.fastjson.JSONObject;
 import com.genersoft.iot.vmp.gb28181.bean.Device;
 import com.genersoft.iot.vmp.media.zlm.ZLMServerConfig;
 import com.genersoft.iot.vmp.media.zlm.dto.MediaServerItem;
@@ -28,13 +29,22 @@ public interface IMediaServerService {
      * @param zlmServerConfig
      * @return
      */
-    void handLeZLMServerConfig(ZLMServerConfig zlmServerConfig);
+    void zlmServerOnline(ZLMServerConfig zlmServerConfig);
+
+    /**
+     * 节点离线
+     * @param mediaServerId
+     * @return
+     */
+    void zlmServerOffline(String mediaServerId);
 
     MediaServerItem getMediaServerForMinimumLoad();
 
-    void setZLMConfig(MediaServerItem mediaServerItem);
+    void setZLMConfig(MediaServerItem mediaServerItem, boolean restart);
 
     SSRCInfo openRTPServer(MediaServerItem mediaServerItem, String streamId);
+
+    SSRCInfo openRTPServer(MediaServerItem mediaServerItem, String streamId, boolean isPlayback);
 
     void closeRTPServer(Device device, String channelId);
 
@@ -52,6 +62,10 @@ public interface IMediaServerService {
 
     WVPResult<String> add(MediaServerItem mediaSerItem);
 
+    int addToDatabase(MediaServerItem mediaSerItem);
+
+    int updateToDatabase(MediaServerItem mediaSerItem);
+
     void resetOnlineServerItem(MediaServerItem serverItem);
 
     WVPResult<MediaServerItem> checkMediaServer(String ip, int port, String secret);
@@ -59,4 +73,8 @@ public interface IMediaServerService {
     boolean checkMediaRecordServer(String ip, int port);
 
     void delete(String id);
+
+    MediaServerItem getDefaultMediaServer();
+
+    void updateMediaServerKeepalive(String mediaServerId, JSONObject data);
 }
