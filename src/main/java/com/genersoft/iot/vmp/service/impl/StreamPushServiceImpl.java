@@ -5,12 +5,16 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.genersoft.iot.vmp.common.StreamInfo;
 import com.genersoft.iot.vmp.conf.UserSetup;
+import com.genersoft.iot.vmp.gb28181.bean.DeviceChannel;
 import com.genersoft.iot.vmp.gb28181.bean.GbStream;
 import com.genersoft.iot.vmp.gb28181.bean.ParentPlatform;
+import com.genersoft.iot.vmp.gb28181.event.EventPublisher;
+import com.genersoft.iot.vmp.gb28181.event.subscribe.catalog.CatalogEvent;
 import com.genersoft.iot.vmp.media.zlm.ZLMHttpHookSubscribe;
 import com.genersoft.iot.vmp.media.zlm.ZLMRESTfulUtils;
 import com.genersoft.iot.vmp.media.zlm.ZLMServerConfig;
 import com.genersoft.iot.vmp.media.zlm.dto.*;
+import com.genersoft.iot.vmp.service.IGbStreamService;
 import com.genersoft.iot.vmp.service.IMediaServerService;
 import com.genersoft.iot.vmp.service.IStreamPushService;
 import com.genersoft.iot.vmp.storager.IRedisCatchStorage;
@@ -18,6 +22,7 @@ import com.genersoft.iot.vmp.storager.dao.GbStreamMapper;
 import com.genersoft.iot.vmp.storager.dao.ParentPlatformMapper;
 import com.genersoft.iot.vmp.storager.dao.PlatformGbStreamMapper;
 import com.genersoft.iot.vmp.storager.dao.StreamPushMapper;
+import com.genersoft.iot.vmp.vmanager.bean.StreamPushExcelDto;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +45,12 @@ public class StreamPushServiceImpl implements IStreamPushService {
 
     @Autowired
     private PlatformGbStreamMapper platformGbStreamMapper;
+
+    @Autowired
+    private IGbStreamService gbStreamService;
+
+    @Autowired
+    private EventPublisher eventPublisher;
 
     @Autowired
     private ZLMRESTfulUtils zlmresTfulUtils;
@@ -115,6 +126,7 @@ public class StreamPushServiceImpl implements IStreamPushService {
         stream.setStreamType("push");
         stream.setStatus(true);
         int add = gbStreamMapper.add(stream);
+
         // 查找开启了全部直播流共享的上级平台
         List<ParentPlatform> parentPlatforms = parentPlatformMapper.selectAllAhareAllLiveStream();
         if (parentPlatforms.size() > 0) {
@@ -122,18 +134,30 @@ public class StreamPushServiceImpl implements IStreamPushService {
                 stream.setCatalogId(parentPlatform.getCatalogId());
                 stream.setPlatformId(parentPlatform.getServerGBId());
                 String streamId = stream.getStream();
-                StreamProxyItem streamProxyItems = platformGbStreamMapper.selectOne(stream.getApp(), streamId, parentPlatform.getServerGBId());
-                if (streamProxyItems == null) {
+                StreamProxyItem streamProxyItem = platformGbStreamMapper.selectOne(stream.getApp(), streamId, parentPlatform.getServerGBId());
+                if (streamProxyItem == null) {
                     platformGbStreamMapper.add(stream);
+                    eventPublisher.catalogEventPublishForStream(parentPlatform.getServerGBId(), stream, CatalogEvent.ADD);
+                }else {
+                    if (!streamProxyItem.getGbId().equals(stream.getGbId())) {
+                        // 此流使用另一个国标Id已经与该平台关联，移除此记录
+                        platformGbStreamMapper.delByAppAndStreamAndPlatform(stream.getApp(), streamId, parentPlatform.getServerGBId());
+                        platformGbStreamMapper.add(stream);
+                        eventPublisher.catalogEventPublishForStream(parentPlatform.getServerGBId(), stream, CatalogEvent.ADD);
+                    }
                 }
             }
         }
+
         return add > 0;
     }
 
     @Override
     public boolean removeFromGB(GbStream stream) {
+        // 判断是否需要发送事件
+        gbStreamService.sendCatalogMsg(stream, CatalogEvent.DEL);
         int del = gbStreamMapper.del(stream.getApp(), stream.getStream());
+        platformGbStreamMapper.delByAppAndStream(stream.getApp(), stream.getStream());
         MediaServerItem mediaInfo = mediaServerService.getOne(stream.getMediaServerId());
         JSONObject mediaList = zlmresTfulUtils.getMediaList(mediaInfo, stream.getApp(), stream.getStream());
         if (mediaList == null) {
@@ -152,6 +176,8 @@ public class StreamPushServiceImpl implements IStreamPushService {
     @Override
     public boolean stop(String app, String streamId) {
         StreamPushItem streamPushItem = streamPushMapper.selectOne(app, streamId);
+        gbStreamService.sendCatalogMsg(streamPushItem, CatalogEvent.DEL);
+
         int delStream = streamPushMapper.del(app, streamId);
         gbStreamMapper.del(app, streamId);
         platformGbStreamMapper.delByAppAndStream(app, streamId);
@@ -295,5 +321,38 @@ public class StreamPushServiceImpl implements IStreamPushService {
             gbStreamMapper.batchAdd(streamPushItems);
         }
         return true;
+    }
+
+    @Override
+    public void batchAdd(List<StreamPushItem> streamPushItems) {
+        streamPushMapper.addAll(streamPushItems);
+        gbStreamMapper.batchAdd(streamPushItems);
+        // 查找开启了全部直播流共享的上级平台
+        List<ParentPlatform> parentPlatforms = parentPlatformMapper.selectAllAhareAllLiveStream();
+        if (parentPlatforms.size() > 0) {
+            for (StreamPushItem stream : streamPushItems) {
+                for (ParentPlatform parentPlatform : parentPlatforms) {
+                    stream.setCatalogId(parentPlatform.getCatalogId());
+                    stream.setPlatformId(parentPlatform.getServerGBId());
+                    String streamId = stream.getStream();
+                    StreamProxyItem streamProxyItem = platformGbStreamMapper.selectOne(stream.getApp(), streamId, parentPlatform.getServerGBId());
+                    if (streamProxyItem == null) {
+                        platformGbStreamMapper.add(stream);
+                        eventPublisher.catalogEventPublishForStream(parentPlatform.getServerGBId(), stream, CatalogEvent.ADD);
+                    }else {
+                        if (!streamProxyItem.getGbId().equals(stream.getGbId())) {
+                            // 此流使用另一个国标Id已经与该平台关联，移除此记录
+                            platformGbStreamMapper.delByAppAndStreamAndPlatform(stream.getApp(), streamId, parentPlatform.getServerGBId());
+                            platformGbStreamMapper.add(stream);
+                            eventPublisher.catalogEventPublishForStream(parentPlatform.getServerGBId(), stream, CatalogEvent.ADD);
+                            stream.setGbId(streamProxyItem.getGbId());
+                            eventPublisher.catalogEventPublishForStream(parentPlatform.getServerGBId(), stream, CatalogEvent.DEL);
+                        }
+                    }
+                }
+            }
+
+
+        }
     }
 }
