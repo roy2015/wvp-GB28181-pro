@@ -15,7 +15,7 @@ spring:
     datasource:
         # 使用mysql 打开23-28行注释， 删除29-36行
         name: wvp
-        url: jdbc:mysql://192.168.1.104:23005/wvp_guojun?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=GMT%2B8&rewriteBatchedStatements=true
+        url: jdbc:mysql://192.168.1.104:23005/wvp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=GMT%2B8&rewriteBatchedStatements=true
         username: root
         password: gAU93jgbko@qfGoR
         type: com.alibaba.druid.pool.DruidDataSource
